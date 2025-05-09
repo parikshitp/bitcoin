@@ -1,15 +1,29 @@
-// Import the WebSocket library
+const express = require('express');
 const WebSocket = require('ws');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const websocketRoutes = require('./routes/websocketRoutes');
+const historicalDataRoutes = require('./routes/historicalDataRoutes');
 
-// Create a new WebSocket server that listens on port 4000
-const wss = new WebSocket.Server({ port: 4000 });
+const app = express();
+app.use(cors());
+app.use(bodyParser.json());
 
-// Store the WebSocket connections by their pair
-let binanceSocket = null;
+// WebSocket server for real-time data
+const wss = new WebSocket.Server({ port: 4001 });
 
+let binanceSocket = null;  // Declare binanceSocket globally
+
+// This function creates a Binance WebSocket connection for the given symbol
 function createBinanceSocket(symbol) {
+  // Ensure the symbol is in lowercase
+
+
+
+  const formattedSymbol = symbol.toLowerCase();
+
   // Create a new Binance WebSocket URL for real-time trade data (e.g., BTC/USDT)
-  const binanceSocketUrl = `wss://stream.binance.com:9443/ws/${symbol}@trade`;
+  const binanceSocketUrl = `wss://stream.binance.com:9443/ws/${formattedSymbol}@trade`;
 
   // If a previous WebSocket connection exists, close it
   if (binanceSocket) {
@@ -21,7 +35,7 @@ function createBinanceSocket(symbol) {
 
   // When the Binance WebSocket connection is open, log it
   binanceSocket.on('open', () => {
-    console.log('Connected to Binance WebSocket stream for:', symbol);
+    console.log('Connected to Binance WebSocket stream for:', formattedSymbol);
   });
 
   // Event handler when the Binance WebSocket stream sends a message
@@ -35,7 +49,7 @@ function createBinanceSocket(symbol) {
       timestamp: parsedData.T // timestamp
     };
 
-    // Broadcast the parsed trade data to all connected clients
+    // Broadcast the parsed trade data to all connected WebSocket clients
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         // Send the trade data as a JSON string to the client
@@ -45,29 +59,33 @@ function createBinanceSocket(symbol) {
   });
 
   binanceSocket.on('close', () => {
-    console.log('Disconnected from Binance WebSocket stream for:', symbol);
+    console.log('Disconnected from Binance WebSocket stream for:', formattedSymbol);
   });
 }
 
 // Event handler when a client connects to your WebSocket server
 wss.on('connection', (ws) => {
   console.log('A new client connected.');
-
-  // Send a welcome message to the newly connected client
-  ws.send('Welcome to the WebSocket server!');
-
-  // Event handler when the client sends a message
+  // Event handler when the client sends a message (i.e., the crypto pair)
   ws.on('message', (message) => {
-    console.log('Received from client:', message);
 
-    // If the client sends a new cryptocurrency pair, update the WebSocket stream
-    const symbol = message.toLowerCase(); // Convert symbol to lowercase
-    createBinanceSocket(symbol); // Create a new WebSocket for the new symbol
+    if (message && message.length > 0) {
+      const messageStr = message.toString(); // Convert Buffer to string
 
-    // Acknowledge the symbol change
-    ws.send(`Now streaming data for ${symbol.toUpperCase()}`);
+      console.log('Received from client:', messageStr);
+      createBinanceSocket(messageStr); // Create or update WebSocket for new symbol
+    } else {
+      console.error('Received invalid or empty message:', message);
+    }
   });
 });
 
-// Log that the WebSocket server is running
-console.log('WebSocket server is running on ws://localhost:4000');
+// Routes for APIs
+app.use('/api/websocket', websocketRoutes);
+app.use('/api/data', historicalDataRoutes);
+
+// Start the Express server
+const port = process.env.PORT || 4000;
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
